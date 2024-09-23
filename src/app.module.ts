@@ -6,9 +6,12 @@ import { EnergyModule } from "./cron/energy.module";
 import { WebSocketModule } from "./websocket/websocket.module";
 import { RedisModule } from "./redis/redis.module";
 import { UsersModule } from "./user/user.module";
+import { AuthModule } from "./auth/auth.module";
+import { BotModule } from "./bot/bot.module";
+import { AdminModule } from "./admin/admin.module";
 
 @Module({
-  imports: [PrismaModule, EnergyModule, RedisModule, UsersModule, WebSocketModule],
+  imports: [PrismaModule, AuthModule, BotModule, AdminModule, EnergyModule, RedisModule, UsersModule, WebSocketModule],
   controllers: [AppController],
   providers: [AppService]
 })
