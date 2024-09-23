@@ -1,0 +1,181 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Admin {
+  id        Int      @id @default(autoincrement())
+  email     String   @unique
+  password  String // Храните захэшированный пароль
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model User {
+  id              Int               @id @default(autoincrement())
+  email           String?
+  first_name      String
+  username        String?
+  created_at      DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime          @updatedAt @db.Timestamptz(3)
+  telegram_id     BigInt            @unique
+  profit          Float?            @default(0)
+  coinsProfit     Float?            @default(0)
+  coinsHours      Float?            @default(0)
+  coins           Float?            @default(0)
+  banned          Boolean?          @default(false)
+  seeInstruction  Boolean?          @default(false)
+  fraction        String?           @default("republic")
+  energy          Float             @default(1000)
+  levels          UserLevelOnUser[]
+  upgrades        UserUpgrade[] // Связь с улучшениями
+  invitesSent     Invite[]          @relation("InvitesSent")
+  invitesReceived Invite[]          @relation("InvitesReceived")
+  DailyReward     DailyReward?
+  UserTask        UserTask[]
+}
+
+model Upgrade {
+  id                      Int                       @id @default(autoincrement())
+  name                    String // Название улучшения
+  category                String // Категория улучшения
+  levels                  UpgradeLevel[] // Связь с уровнями улучшения
+  users                   UserUpgrade[] // Обратная связь с UserUpgrade
+  UpgradeLevelRequirement UpgradeLevelRequirement[]
+
+  @@index([name], name: "upgrade_name_idx")
+}
+
+model UpgradeLevel {
+  id             Int   @id @default(autoincrement())
+  upgradeId      Int
+  level          Int // Уровень улучшения
+  cost           Float // Стоимость этого уровня
+  profitIncrease Float // Увеличение дохода в час на этом уровне
+
+  upgrade      Upgrade                   @relation(fields: [upgradeId], references: [id], onDelete: Cascade)
+  requirements UpgradeLevelRequirement[] // Связь с требованиями к этому уровню улучшения
+
+  users UserUpgrade[] // Связь с пользователями, имеющими этот уровень улучшения
+
+  @@index([upgradeId, level], name: "upgrade_level_idx")
+}
+
+model UpgradeLevelRequirement {
+  id                Int  @id @default(autoincrement())
+  upgradeLevelId    Int
+  requiredUserLevel Int? // Требуемый уровень пользователя (опционально)
+  requiredUpgradeId Int? // Требуемое улучшение (опционально)
+  requiredLevel     Int? // Требуемый уровень указанного улучшения
+
+  upgradeLevel    UpgradeLevel @relation(fields: [upgradeLevelId], references: [id], onDelete: Cascade)
+  requiredUpgrade Upgrade?     @relation(fields: [requiredUpgradeId], references: [id], onDelete: Cascade)
+
+  @@index([upgradeLevelId], name: "upgrade_level_requirement_upgrade_level_idx")
+}
+
+model UserUpgrade {
+  id             Int @id @default(autoincrement())
+  userId         Int
+  upgradeId      Int
+  upgradeLevelId Int
+  level          Int
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  upgrade      Upgrade      @relation(fields: [upgradeId], references: [id], onDelete: Cascade) // Обратная связь с Upgrade
+  upgradeLevel UpgradeLevel @relation(fields: [upgradeLevelId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, upgradeId, upgradeLevelId])
+  @@index([userId], name: "user_upgrade_user_idx")
+  @@index([upgradeLevelId], name: "user_upgrade_level_idx")
+}
+
+model Invite {
+  id        Int      @id @default(autoincrement())
+  inviterId Int
+  inviteeId Int
+  isPremium Boolean // Был ли приглашенный пользователь Telegram Premium
+  createdAt DateTime @default(now())
+  bonus     Int?     @default(0)
+
+  inviter User @relation("InvitesSent", fields: [inviterId], references: [id], onDelete: Cascade)
+  invitee User @relation("InvitesReceived", fields: [inviteeId], references: [id], onDelete: Cascade)
+
+  @@unique([inviterId, inviteeId])
+  @@index([inviterId], name: "inviter_idx")
+  @@index([inviteeId], name: "invitee_idx")
+}
+
+model UserLevel {
+  id             Int               @id @default(autoincrement())
+  level          Int
+  required_xp    Float
+  profit_per_tap Int
+  bonus_chance   Int
+  bonus_amount   Int
+  xp_growth      Float
+  energy_limit   Float?            @default(1000)
+  users          UserLevelOnUser[]
+}
+
+model UserLevelOnUser {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  levelId   Int
+  reachedAt DateTime @default(now()) // Дата достижения уровня
+
+  user  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  level UserLevel @relation(fields: [levelId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, levelId])
+  @@index([userId], name: "user_level_user_idx")
+  @@index([levelId], name: "level_user_level_idx")
+}
+
+model DailyReward {
+  id              Int       @id @default(autoincrement())
+  userId          Int       @unique
+  lastClaimedDate DateTime? // Дата последнего получения награды
+  streak          Int       @default(0) // Текущий день непрерывного входа
+  claimedDays     Boolean[] @default([])
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Task {
+  id             Int        @id @default(autoincrement())
+  type           TaskType // Тип задания: пригласить или присоединиться
+  description    String // Описание задания
+  reward         Int // Награда за выполнение задания (в монетах)
+  target         String // Цель задания (количество приглашений или ID группы)
+  usersCompleted UserTask[] // Связь с выполненными заданиями пользователей
+
+  @@index([type], name: "task_type_idx")
+}
+
+model UserTask {
+  id     Int    @id @default(autoincrement())
+  userId Int
+  taskId Int
+  status String // Статус выполнения задания: выполнено или не выполнено
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, taskId])
+  @@index([userId], name: "user_task_user_idx")
+  @@index([taskId], name: "user_task_task_idx")
+}
+
+enum TaskType {
+  INVITE
+  JOIN_GROUP
+  JOIN_CHAT
+  JOIN_CHAT_2
+}
