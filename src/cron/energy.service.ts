@@ -6,205 +6,51 @@ import { Server } from "socket.io";
 import Redis from "ioredis";
 import { RedisService } from "../redis/redis.service";
 
-const PROFIT_CHECK_INTERVAL_MS = 60000; // Каждую минуту (60 секунд)
-const PROFIT_INTERVAL_MS = 1000; // Каждую секунду
+const PROFIT_INTERVAL_MS = 1 * 1000; // Каждую секунду
 const PROFIT_DURATION_MS = 3 * 60 * 60 * 1000; // 3 часа в миллисекундах
-const BATCH_UPDATE_INTERVAL_MS = 60000; // Обновление в базу каждые 60 секунд
-const THRESHOLD_TO_UPDATE_DB = 100; // Порог накопления профита для записи в базу
 
 @Injectable()
 export class EnergyService implements OnModuleInit {
   private server: Server;
   private redisClient: Redis;
-  private activeProfitTimers = new Set<number>(); // Хранит активных пользователей
+  private isEnergyRecoveryStarted = false;  // Флаг для проверки, был ли метод запущен
+  private activeProfitTimers = new Map<number, NodeJS.Timeout>();  // Хранит активные таймеры пользователей
 
   constructor(
-    private prisma: PrismaService,
-    @Inject(MyWebSocketGateway) private websocketGateway: MyWebSocketGateway,
-    private redisService: RedisService
-  ) {}
+      private prisma: PrismaService,
+      @Inject(MyWebSocketGateway) private websocketGateway: MyWebSocketGateway,
+      private redisService: RedisService
+  ) {
+  }
 
   onModuleInit() {
-    this.server = this.websocketGateway.server;
-    this.redisClient = this.redisService.getClient();
-
-    this.startBatchProfitProcess(); // Единый процесс для начисления профита
-    this.startEnergyRecovery(); // Запуск восстановления энергии
-  }
-
-  // Восстановление энергии
-  private startEnergyRecovery() {
-    cron.schedule("*/5 * * * * *", async () => {
-      const users = await this.prisma.user.findMany({
-        select: { id: true, energy: true, levels: { select: { levelId: true } } }
-      });
-
-      const usersToUpdate = [];
-      for (const user of users) {
-        const userLevel = await this.prisma.userLevel.findFirst({
-          where: { id: user.levels?.[0]?.levelId },
-          select: { energy_limit: true }
-        });
-
-        if (!userLevel) continue;
-
-        const energyLimit = userLevel.energy_limit;
-        if (user.energy < energyLimit) {
-          const newEnergy = user.energy + 10;
-          usersToUpdate.push({ id: user.id, newEnergy });
-        }
-      }
-
-      if (usersToUpdate.length > 0) {
-        await this.updateUserEnergyBatch(usersToUpdate); // Батчевое обновление
-      }
-    });
-  }
-
-  // Обновление энергии батчем
-  private async updateUserEnergyBatch(users: any[]) {
-    const updates = users.map(user => {
-      return this.prisma.user.update({
-        where: { id: user.id },
-        data: { energy: user.newEnergy }
-      });
-    });
-    await this.prisma.$transaction(updates); // Выполняем все обновления в транзакции
-
-    // Оповещаем всех пользователей через WebSocket
-    users.forEach(user => {
-      if (this.server) {
-        this.server.to(user.id.toString()).emit("energyUpdated", {
-          userId: user.id,
-          energy: user.newEnergy,
-        });
-      }
-    });
-  }
-
-  // Начисление профита с использованием Redis для временного хранения
-  private async processProfitInRedis(userId: number, profitChunk: number, addToCoinsHours: boolean = false) {
-
-    const redisKey = `user:${userId}:newProfit`;
-    const currentProfit = (await this.redisClient.get(redisKey)) || 0;
-    const updatedProfit = Number(currentProfit) + profitChunk;
-
-    // Обновляем временный профит в Redis
-    await this.redisClient.set(redisKey, updatedProfit);
-
-    // Оповещаем пользователя через WebSocket, даже если профит не записан в базу
-    if (this.server) {
-      this.server.to(userId.toString()).emit("coinUpdated", {
-        userId,
-        coinsProfit: updatedProfit,
-        coins: profitChunk,
-        plus: true
-      });
+    if (!this.isEnergyRecoveryStarted) {
+      this.server = this.websocketGateway.server;
+      this.redisClient = this.redisService.getClient();
+      this.startEnergyRecovery();
+      this.isEnergyRecoveryStarted = true;  // Устанавливаем флаг после запуска метода
     }
+  }
 
-    // Если накопленный профит достиг порога, записываем в базу
-    if (updatedProfit >= THRESHOLD_TO_UPDATE_DB) {
-      const dataToUpdate = {
-        coinsProfit: { increment: updatedProfit },
-        coins: { increment: updatedProfit }
-      };
-
-      if (addToCoinsHours) {
-        dataToUpdate["coinsHours"] = { increment: updatedProfit };
-      }
-
-      const updatedUser = await this.prisma.user.update({
+  private async updateUserEnergy(userId: number, newEnergy: number) {
+    try {
+      await this.prisma.user.update({
         where: { id: userId },
-        data: dataToUpdate,
-        include: { levels: true }
+        data: { energy: newEnergy }
       });
 
-      // Проверяем и обновляем уровень пользователя, если нужно
-      if (updatedUser) {
-        await this.handleUpgradeLevelUp(userId, updatedUser, {
-          levelId: updatedUser.levels?.[0]?.levelId,
+      if (this.server) {
+
+        this.server.to(userId.toString()).emit("energyUpdated", {
+          userId,
+          energy: newEnergy
         });
-
-        // Оповещаем пользователя о новом уровне через WebSocket
-        if (this.server) {
-          this.server.to(userId.toString()).emit("coinUpdated", {
-            userId,
-            coins: updatedUser.coins,
-            coinsProfit: updatedUser.coinsProfit,
-            coinsHours: updatedUser.coinsHours,
-            energy: updatedUser.energy
-          });
-        }
       }
-
-      // Сбрасываем накопленный профит в Redis
-      await this.redisClient.set(redisKey, 0);
+    } catch (e) {
+      console.error(`Failed to update energy for user ${userId}:`, e);
     }
   }
 
-  // Единый процесс для начисления профита
-  private startBatchProfitProcess() {
-    setInterval(async () => {
-      const activeUsers = Array.from(this.activeProfitTimers);
-      if (activeUsers.length === 0) return;
-
-      for (const userId of activeUsers) {
-        const updatedUser = await this.prisma.user.findUnique({
-          where: { id: userId },
-          select: { profit: true }
-        });
-
-        const updatedProfitPerSecond = updatedUser.profit / 3600;
-        await this.processProfitInRedis(userId, Number(updatedProfitPerSecond.toFixed(2)));
-      }
-    }, PROFIT_INTERVAL_MS);
-
-    // Периодическое сохранение профита из Redis в базу данных
-    setInterval(async () => {
-      const users = await this.redisClient.keys("user:*:newProfit");
-      for (const userKey of users) {
-        const userId = Number(userKey.split(":")[1]);
-        const profit = await this.redisClient.get(userKey);
-
-        if (Number(profit) > 0) {
-          await this.prisma.user.update({
-            where: { id: userId },
-            data: {
-              coinsProfit: { increment: Number(profit) },
-              coins: { increment: Number(profit) }
-            }
-          });
-
-          if (this.server) {
-            this.server.to(userId.toString()).emit("coinUpdated", {
-              userId,
-              coinsProfit: Number(profit),
-            });
-          }
-
-          await this.redisClient.set(userKey, 0); // Сбрасываем кеш
-        }
-      }
-    }, BATCH_UPDATE_INTERVAL_MS);
-  }
-
-  public async startUserProfitTimer(userId: number) {
-    const isInactive = await this.redisClient.get(`user:${userId}:profitInactive`);
-    if (!isInactive) {
-      this.activeProfitTimers.add(userId); // Добавляем пользователя в активные
-      console.log(`Starting or restarting profit timer for user ${userId}`);
-    }
-  }
-
-  public async stopUserProfitTimer(userId: number) {
-    setTimeout(async () => {
-      this.activeProfitTimers.delete(userId); // Удаляем пользователя из активных
-      await this.redisClient.set(`user:${userId}:profitInactive`, "true", "PX", PROFIT_DURATION_MS);
-      console.log(`Profit earning stopped for user ${userId} due to 3 hours of activity.`);
-    }, PROFIT_DURATION_MS);
-  }
-
-  // Проверка и повышение уровня пользователя
   async handleUpgradeLevelUp(userId: number, updatedUser: any, userCache: any) {
     const nextLevel = await this.prisma.userLevel.findFirst({
       where: {
@@ -229,7 +75,6 @@ export class EnergyService implements OnModuleInit {
         }
       });
 
-      // Оповещаем пользователя о повышении уровня через WebSocket
       if (this.server) {
         this.server.to(userId.toString()).emit("levelUpdated", {
           userId: updatedUser.id,
@@ -239,8 +84,127 @@ export class EnergyService implements OnModuleInit {
     }
   }
 
+  private async updateUserCoins(userId: number, profitChunk: number, addToCoinsHours: boolean = false) {
+    try {
+      const dataToUpdate = {
+        coinsProfit: { increment: profitChunk },
+        coins: { increment: profitChunk }
+      };
+
+      if (addToCoinsHours) {
+        dataToUpdate["coinsHours"] = { increment: profitChunk };
+      }
+
+      const updatedUser = await this.prisma.user.update({
+        where: { id: userId },
+        data: dataToUpdate,
+        include: { levels: true }
+      });
+
+      if (updatedUser) {
+        await this.handleUpgradeLevelUp(userId, updatedUser, {
+          levelId: updatedUser.levels?.[0]?.levelId
+        });
+      }
+
+      if (this.server) {
+        this.server.to(userId.toString()).emit("coinUpdated", {
+          userId,
+          coins: updatedUser.coins,
+          coinsProfit: updatedUser.coinsProfit,
+          coinsHours: updatedUser.coinsHours, // Отправляем обновленное значение coinsHours
+          energy: updatedUser.energy
+        });
+      }
+
+      return updatedUser;
+    } catch (e) {
+      console.error(`Failed to update coins for user ${userId}:`, e);
+      return null;
+    }
+  }
+
+  private startEnergyRecovery() {
+    console.log("Starting energy recovery...");
+
+    cron.schedule("*/5 * * * * *", async () => { // Запуск задачи каждую секунду
+      const users = await this.prisma.user.findMany({
+        select: {
+          id: true, energy: true, levels: {
+            select: { levelId: true }
+          }
+        }
+      });
+
+      try {
+        for (const user of users) {
+
+          const userLevel = await this.prisma.userLevel.findFirst({
+            where: { id: user.levels?.[0]?.levelId },
+            select: { energy_limit: true }
+          });
+
+          if (!userLevel) continue;
+
+          const energyLimit = userLevel.energy_limit;
+
+          if (user.energy < energyLimit) {
+            const newEnergy = user.energy + 10;
+
+            if (user.energy !== newEnergy) {
+              await this.updateUserEnergy(user.id, newEnergy);
+            }
+          }
+        }
+      } catch (e) {
+        console.error("Error during energy recovery:", e);
+      }
+    });
+  }
+
+  private async processProfit(userId: number, addToCoinsHours: boolean = false) {
+    // Проверяем, не активен ли уже таймер для этого пользователя
+    if (this.activeProfitTimers.has(userId)) {
+      // Перезапуск таймера
+      clearInterval(this.activeProfitTimers.get(userId));
+      this.activeProfitTimers.delete(userId);
+    }
+
+    const profitInterval = setInterval(async () => {
+      const updatedUser = await this.prisma.user.findUnique({ where: { id: userId }, select: { profit: true } });
+      const updatedProfitPerSecond = updatedUser.profit / 3600;
+
+      await this.updateUserCoins(userId, Number(updatedProfitPerSecond.toFixed(2)), addToCoinsHours);
+    }, PROFIT_INTERVAL_MS);
+
+    // Сохраняем таймер в Map
+    this.activeProfitTimers.set(userId, profitInterval);
+
+    // Остановить начисление через 3 часа, если пользователь неактивен
+    setTimeout(async () => {
+      clearInterval(profitInterval);
+      this.activeProfitTimers.delete(userId); // Удаляем таймер из активных
+      await this.redisClient.set(`user:${userId}:profitInactive`, "true", "PX", PROFIT_DURATION_MS);
+      console.log(`Profit earning stopped for user ${userId} due to 3 hours of activity.`);
+    }, PROFIT_DURATION_MS);
+  }
+
+  public async startUserProfitTimer(userId: number) {
+    // Сбросить таймер неактивности пользователя
+    await this.redisClient.del(`user:${userId}:profitInactive`);
+
+    const isInactive = await this.redisClient.get(`user:${userId}:profitInactive`);
+
+    if (!isInactive) {
+      console.log(`Starting or restarting profit timer for user ${userId}`);
+      await this.processProfit(userId);
+    } else {
+      console.log(`User ${userId} is currently in the inactive state.`);
+    }
+  }
+
   public async startCoinsHoursAccumulation(userId: number) {
-    await this.processProfitInRedis(userId, 0, true);
+    await this.processProfit(userId, true);
   }
 
   public async resetCoinsHours(userId: number) {
@@ -248,7 +212,7 @@ export class EnergyService implements OnModuleInit {
       await this.prisma.user.update({
         where: { id: Number(userId) },
         data: {
-          coinsHours: 0 // Сбросить coinsHours
+          coinsHours: 0 // Сбрасываем coinsHours
         }
       });
 
