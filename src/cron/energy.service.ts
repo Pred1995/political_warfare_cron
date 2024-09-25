@@ -17,9 +17,9 @@ export class EnergyService implements OnModuleInit {
   private activeProfitTimers = new Map<number, NodeJS.Timeout>();  // Хранит активные таймеры пользователей
 
   constructor(
-      private prisma: PrismaService,
-      @Inject(MyWebSocketGateway) private websocketGateway: MyWebSocketGateway,
-      private redisService: RedisService
+    private prisma: PrismaService,
+    @Inject(MyWebSocketGateway) private websocketGateway: MyWebSocketGateway,
+    private redisService: RedisService
   ) {
   }
 
@@ -40,6 +40,9 @@ export class EnergyService implements OnModuleInit {
       });
 
       if (this.server) {
+
+        if (userId === 3)
+          console.log("newEnergy", newEnergy, "userId", userId);
 
         this.server.to(userId.toString()).emit("energyUpdated", {
           userId,
