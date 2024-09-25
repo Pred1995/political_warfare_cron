@@ -43,7 +43,8 @@ export class EnergyService implements OnModuleInit {
 
         this.server.to(userId.toString()).emit("energyUpdated", {
           userId,
-          energy: newEnergy
+          energy: newEnergy,
+          recover: true
         });
       }
     } catch (e) {
