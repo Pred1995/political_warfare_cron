@@ -171,7 +171,7 @@ export class EnergyService implements OnModuleInit {
     }
 
     const profitInterval = setInterval(async () => {
-      const updatedUser = await this.prisma.user.findUnique({ where: { id: userId }, select: { profit: true } });
+      const updatedUser = await this.prisma.user.findFirst({ where: { id: userId }, select: { profit: true } });
       const updatedProfitPerSecond = updatedUser.profit / 3600;
 
       await this.updateUserCoins(userId, Number(updatedProfitPerSecond.toFixed(2)), addToCoinsHours);
