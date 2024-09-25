@@ -5,6 +5,7 @@ import { MyWebSocketGateway } from "../websocket/websocket.gateway";
 import { Server } from "socket.io";
 import Redis from "ioredis";
 import { RedisService } from "../redis/redis.service";
+import {use} from "passport";
 
 const PROFIT_INTERVAL_MS = 1 * 1000; // Каждую секунду
 const PROFIT_DURATION_MS = 3 * 60 * 60 * 1000; // 3 часа в миллисекундах
@@ -36,7 +37,7 @@ export class EnergyService implements OnModuleInit {
     try {
       await this.prisma.user.update({
         where: { id: userId },
-        data: { energy: newEnergy }
+        data: { energy: newEnergy, tapping: true }
       });
 
       if (this.server) {
@@ -131,13 +132,14 @@ export class EnergyService implements OnModuleInit {
   private startEnergyRecovery() {
     console.log("Starting energy recovery...");
 
-    cron.schedule("*/8 * * * * *", async () => { // Запуск задачи каждую секунду
+    cron.schedule("*/3 * * * * *", async () => { // Запуск задачи каждую секунду
       const users = await this.prisma.user.findMany({
         select: {
           id: true, energy: true, levels: {
             select: { levelId: true }
           }
-        }
+        },
+        where: {tapping: true}
       });
 
       try {
@@ -158,7 +160,13 @@ export class EnergyService implements OnModuleInit {
             if (user.energy !== newEnergy) {
               await this.updateUserEnergy(user.id, newEnergy);
             }
+          } else if (user.energy >= energyLimit) {
+            await this.prisma.user.update({
+              where: { id: user.id },
+              data: { tapping: false }
+            })
           }
+
         }
       } catch (e) {
         console.error("Error during energy recovery:", e);

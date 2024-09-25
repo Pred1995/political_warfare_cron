@@ -32,6 +32,7 @@ model User {
   coins           Float?            @default(0)
   banned          Boolean?          @default(false)
   seeInstruction  Boolean?          @default(false)
+  tapping         Boolean?          @default(false)
   fraction        String?           @default("republic")
   energy          Float             @default(1000)
   levels          UserLevelOnUser[]
