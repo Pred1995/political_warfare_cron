@@ -131,7 +131,7 @@ export class EnergyService implements OnModuleInit {
   private startEnergyRecovery() {
     console.log("Starting energy recovery...");
 
-    cron.schedule("* * * * * *", async () => { // Запуск задачи каждую секунду
+    cron.schedule("*/8 * * * * *", async () => { // Запуск задачи каждую секунду
       const users = await this.prisma.user.findMany({
         select: {
           id: true, energy: true, levels: {
