@@ -1,15 +1,11 @@
-import { Body, Controller, Post, Param, Put, Req } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
-import { UsersService } from "./user.service";
-import { EnergyService } from "../cron/energy.service";
+import {Body, Controller, Get, Param, Post, Put, Query, Req} from '@nestjs/common';
+import {PrismaService} from '../prisma/prisma.service';
+import {UsersService} from "./user.service";
+import {EnergyService} from "../cron/energy.service";
 
 @Controller('users')
 export class UsersController {
-    constructor(
-      private prisma: PrismaService,
-      private readonly usersService: UsersService,
-      private readonly energyService: EnergyService
-    ) {}
+    constructor(private prisma: PrismaService, private readonly usersService: UsersService, private readonly energyService: EnergyService ) {}
 
     @Post('login')
     async login(@Body() body: { userId: number }, @Req() req: Request) {
@@ -20,6 +16,7 @@ export class UsersController {
 
     @Post('logout')
     async logout(@Body('userId') userId: number) {
+        // Начинаем начисление в coinsHours при выходе пользователя
         await this.energyService.startCoinsHoursAccumulation(userId);
         return { success: true, message: `User ${userId} logged out and coinsHours accumulation started.` };
     }
@@ -28,4 +25,5 @@ export class UsersController {
     async resetCoinsHours(@Param('id') id: number) {
         return this.energyService.resetCoinsHours(id);
     }
+
 }

@@ -17,7 +17,7 @@ export class AdminService {
   }
 
   async validateAdmin(email: string, password: string) {
-    const admin = await this.prisma.admin.findUnique({ where: { email } });
+    const admin = await this.prisma.admin.findFirst({ where: { email } });
     if (admin && await bcrypt.compare(password, admin.password)) {
       return admin;
     }
@@ -25,7 +25,7 @@ export class AdminService {
   }
 
   async getAdminById(adminId: number) {
-    return this.prisma.admin.findUnique({ where: { id: adminId } });
+    return this.prisma.admin.findFirst({ where: { id: adminId } });
   }
 
   async getUsers(

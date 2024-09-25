@@ -36,13 +36,13 @@ export class BotService implements OnModuleInit {
         if (args && args.length > 1) {
           const inviterId = Number(args[1]);
 
-          const inviterRow = await this.prisma.user.findUnique({
+          const inviterRow = await this.prisma.user.findFirst({
             where: { id: inviterId }
           });
 
           if (inviterId && inviterRow) {
             // Проверка, зарегистрирован ли пользователь уже в системе
-            const existingUser = await this.prisma.user.findUnique({
+            const existingUser = await this.prisma.user.findFirst({
               where: { telegram_id: BigInt(id) }
             });
 
@@ -54,12 +54,10 @@ export class BotService implements OnModuleInit {
             // Выполняем регистрацию пользователя
             const user = await this.authService.validateUser(BigInt(id), first_name, username);
 
-            const alreadyInvited = await this.prisma.invite.findUnique({
+            const alreadyInvited = await this.prisma.invite.findFirst({
               where: {
-                inviterId_inviteeId: {
-                  inviterId: inviterRow.id,
-                  inviteeId: user.id
-                }
+                inviterId: inviterRow.id,
+                inviteeId: user.id
               }
             });
 
@@ -95,12 +93,10 @@ export class BotService implements OnModuleInit {
 
               if (inviteTask) {
                 // Проверяем, не выполнил ли уже пользователь это задание
-                const existingUserTask = await this.prisma.userTask.findUnique({
+                const existingUserTask = await this.prisma.userTask.findFirst({
                   where: {
-                    userId_taskId: {
-                      userId: inviterRow.id,
-                      taskId: inviteTask.id
-                    }
+                    userId: inviterRow.id,
+                    taskId: inviteTask.id
                   }
                 });
 
@@ -180,7 +176,7 @@ Choose your candidate, earn money for the and invite friends to compete🚀!`, {
 
   // Метод для проверки принадлежности к группе и выполнения задания
   async checkUserInGroup(userId: number, chatId?: string): Promise<[string, boolean]> {
-    const user = await this.prisma.user.findUnique({
+    const user = await this.prisma.user.findFirst({
       where: { id: Number(userId) }
     });
 
@@ -211,12 +207,10 @@ Choose your candidate, earn money for the and invite friends to compete🚀!`, {
     });
 
     if (joinGroupTask) {
-      const userTask = await this.prisma.userTask.findUnique({
+      const userTask = await this.prisma.userTask.findFirst({
         where: {
-          userId_taskId: {
-            userId: userId,
-            taskId: joinGroupTask.id
-          }
+          userId: userId,
+          taskId: joinGroupTask.id
         }
       });
 
@@ -249,7 +243,7 @@ Choose your candidate, earn money for the and invite friends to compete🚀!`, {
   }
 
   async checkUserInChat(userId: number, chatId: string): Promise<[string, boolean]> {
-    const user = await this.prisma.user.findUnique({
+    const user = await this.prisma.user.findFirst({
       where: { id: Number(userId) }
     });
 
@@ -283,12 +277,10 @@ Choose your candidate, earn money for the and invite friends to compete🚀!`, {
     });
 
     if (joinChatTask) {
-      const userTask = await this.prisma.userTask.findUnique({
+      const userTask = await this.prisma.userTask.findFirst({
         where: {
-          userId_taskId: {
-            userId: userId,
-            taskId: joinChatTask.id
-          }
+          userId: userId,
+          taskId: joinChatTask.id
         }
       });
 

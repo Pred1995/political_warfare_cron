@@ -7,7 +7,7 @@ export class AuthService {
   constructor(private prisma: PrismaService, private jwtService: JwtService) {}
 
   async validateUser(telegramId: bigint, firstName: string, username: string): Promise<any> {
-    let user = await this.prisma.user.findUnique({
+    let user = await this.prisma.user.findFirst({
       where: { telegram_id: telegramId }, include: {
         levels: true
       }
@@ -46,7 +46,7 @@ export class AuthService {
   }
 
   async getTokenByTelegramId(telegramId: bigint): Promise<string | null> {
-    const user = await this.prisma.user.findUnique({
+    const user = await this.prisma.user.findFirst({
       where: { telegram_id: telegramId },
     });
 
