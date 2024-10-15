@@ -31,6 +31,7 @@ model User {
   coinsHours      Float?            @default(0)
   coins           Float?            @default(0)
   banned          Boolean?          @default(false)
+  isFake          Boolean?          @default(false)
   seeInstruction  Boolean?          @default(false)
   tapping         Boolean?          @default(false)
   fraction        String?           @default("republic")
@@ -41,11 +42,15 @@ model User {
   invitesReceived Invite[]          @relation("InvitesReceived")
   DailyReward     DailyReward?
   UserTask        UserTask[]
+  UserCombo       UserCombo[]
 }
 
 model Upgrade {
   id                      Int                       @id @default(autoincrement())
   name                    String // Название улучшения
+  description             String? // Название улучшения
+  description_en          String? // Название улучшения
+  logo                    String? // Название улучшения
   category                String // Категория улучшения
   levels                  UpgradeLevel[] // Связь с уровнями улучшения
   users                   UserUpgrade[] // Обратная связь с UserUpgrade
@@ -155,6 +160,8 @@ model Task {
   description    String // Описание задания
   reward         Int // Награда за выполнение задания (в монетах)
   target         String // Цель задания (количество приглашений или ID группы)
+  logo           String? // Цель задания (количество приглашений или ID группы)
+  variant        String?
   usersCompleted UserTask[] // Связь с выполненными заданиями пользователей
 
   @@index([type], name: "task_type_idx")
@@ -172,6 +179,46 @@ model UserTask {
   @@unique([userId, taskId])
   @@index([userId], name: "user_task_user_idx")
   @@index([taskId], name: "user_task_task_idx")
+}
+
+model Combo {
+  id          Int      @id @default(autoincrement())
+  cards       Int[] // Array of numbers (1-9) representing the combo cards
+  rewardHours Int // Number of hours of income reward
+  validFrom   DateTime // Start time of the combo's validity
+  validUntil  DateTime // End time of the combo's validity
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  userCombos UserCombo[] // Relation to users' guesses
+}
+
+model UserCombo {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  comboId   Int
+  isGuessed Boolean  @default(false) // Успешно ли угадана комбинация
+  createdAt DateTime @default(now())
+
+  user  User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  combo Combo           @relation(fields: [comboId], references: [id], onDelete: Cascade)
+  steps UserComboStep[] // Связь с шагами
+
+  @@unique([userId, comboId])
+  @@index([userId], name: "user_combo_user_idx")
+  @@index([comboId], name: "user_combo_combo_idx")
+}
+
+model UserComboStep {
+  id          Int     @id @default(autoincrement())
+  userComboId Int
+  stepNumber  Int // Номер шага (1, 2 или 3)
+  guess       Int // Предположение пользователя
+  isCorrect   Boolean // Верно ли угадана карточка на этом шаге
+
+  userCombo UserCombo @relation(fields: [userComboId], references: [id], onDelete: Cascade)
+
+  @@unique([userComboId, stepNumber])
 }
 
 enum TaskType {
